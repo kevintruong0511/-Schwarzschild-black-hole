@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Gargantua: a real-time general-relativistic ray tracer rendering a Schwarzschild black hole with gravitational lensing, Doppler beaming and a glowing accretion disk, in WebGL2 with zero dependencies.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#030306">
+  <title>Gargantua</title>
+  <link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+
+  <canvas id="canvas" aria-label="Real-time rendering of a Schwarzschild black hole" role="img"></canvas>
+
+  <!-- Loading overlay (engine hides after first frame) -->
+  <div id="loading" role="status" aria-live="polite">
+    <div class="loading-inner">
+      <div class="loading-title">GARGANTUA</div>
+      <div class="loading-sub">compiling spacetime…</div>
+      <div class="loading-bar" aria-hidden="true"><span></span></div>
+    </div>
+  </div>
+
+  <!-- Error card (engine fills textContent and removes .hidden) -->
+  <div id="error" class="hidden" role="alert"></div>
+
+  <!-- Top-left: title mark + HUD -->
+  <div id="brand" aria-hidden="true">
+    <span class="brand-name">GARGANTUA</span>
+    <span class="brand-tag">— Schwarzschild black hole, real-time GR ray tracer</span>
+  </div>
+
+  <div id="hud" role="group" aria-label="Render statistics">
+    <div class="hud-item"><span class="hud-label">fps</span><span id="hud-fps" class="hud-value">—</span></div>
+    <div class="hud-item"><span class="hud-label">dist</span><span id="hud-distance" class="hud-value">—</span></div>
+    <div class="hud-item"><span class="hud-label">incl</span><span id="hud-inclination" class="hud-value">—</span></div>
+    <div class="hud-item"><span class="hud-label">res</span><span id="hud-res" class="hud-value">—</span></div>
+  </div>
+
+  <!-- Top-right: action cluster -->
+  <div id="actions" role="toolbar" aria-label="View actions">
+    <button id="btn-toggle-panel" type="button" aria-label="Show or hide the controls panel" title="Show or hide the controls panel">Controls</button>
+    <button id="btn-toggle-info" type="button" aria-label="Show or hide the physics explainer" title="Show or hide the physics explainer">Physics</button>
+    <button id="btn-screenshot" type="button" aria-label="Save a screenshot of the current frame" title="Save a screenshot (S)">Screenshot</button>
+    <button id="btn-reset" type="button" aria-label="Reset camera and all settings to defaults" title="Reset camera and settings (R)">Reset</button>
+  </div>
+
+  <!-- Right: control panel -->
+  <aside id="panel" aria-label="Render controls">
+    <h2 class="panel-title">Controls</h2>
+
+    <section class="group" aria-labelledby="grp-camera">
+      <h3 id="grp-camera">Camera</h3>
+
+      <div class="row">
+        <label for="ctl-fov" title="Vertical field of view in degrees. Wide angles exaggerate the lensing near the hole.">Field of view</label>
+        <input type="range" id="ctl-fov" min="20" max="110" step="1" value="60">
+        <output data-for="ctl-fov" for="ctl-fov">60°</output>
+      </div>
+
+      <div class="presets" role="group" aria-label="Camera presets">
+        <button type="button" data-preset="interstellar" title="The classic view: 32 M out, 10° above the disk (key 1)">Interstellar</button>
+        <button type="button" data-preset="edge" title="Nearly in the disk plane, 30 M out (key 2)">Edge-on</button>
+        <button type="button" data-preset="top" title="Looking down the spin axis from 40 M (key 3)">Top-down</button>
+        <button type="button" data-preset="far" title="Wide shot from 120 M with a narrow lens (key 4)">Far</button>
+        <button type="button" data-preset="close" title="9 M out with a 90° lens; the sky starts to wrap (key 5)">Close</button>
+      </div>
+    </section>
+
+    <section class="group" aria-labelledby="grp-disk">
+      <h3 id="grp-disk">Accretion disk</h3>
+
+      <div class="row">
+        <label for="ctl-diskInner" title="Inner edge of the disk in units of M. The default 6 M is the ISCO, the innermost stable circular orbit; gas inside it plunges in.">Inner radius</label>
+        <input type="range" id="ctl-diskInner" min="2.5" max="12" step="0.1" value="6">
+        <output data-for="ctl-diskInner" for="ctl-diskInner">6.0 M</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-diskOuter" title="Outer edge of the disk in units of M. Real disks fade out gradually; this is where the emission is cut off.">Outer radius</label>
+        <input type="range" id="ctl-diskOuter" min="8" max="40" step="0.5" value="18">
+        <output data-for="ctl-diskOuter" for="ctl-diskOuter">18.0 M</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-diskBrightness" title="Multiplier on the disk's emitted intensity before tone mapping. Push it up to blow out the inner ring.">Brightness</label>
+        <input type="range" id="ctl-diskBrightness" min="0" max="5" step="0.05" value="1">
+        <output data-for="ctl-diskBrightness" for="ctl-diskBrightness">1.00</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-diskTemp" title="Peak blackbody temperature of the disk in kelvin. Around 7000 K it glows white-amber; 20000 K is blue-white.">Temperature</label>
+        <input type="range" id="ctl-diskTemp" min="2000" max="20000" step="100" value="7000">
+        <output data-for="ctl-diskTemp" for="ctl-diskTemp">7000 K</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-turbulence" title="Strength of the procedural streaks and clumps swirling in the disk. Zero gives a smooth, idealised disk.">Turbulence</label>
+        <input type="range" id="ctl-turbulence" min="0" max="1" step="0.01" value="0.6">
+        <output data-for="ctl-turbulence" for="ctl-turbulence">0.60</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-timeScale" title="How many units of coordinate time (M) pass per real second. Gas at the ISCO completes an orbit every ~92 M.">Time scale</label>
+        <input type="range" id="ctl-timeScale" min="0" max="40" step="0.5" value="8">
+        <output data-for="ctl-timeScale" for="ctl-timeScale">8.0 M/s</output>
+      </div>
+    </section>
+
+    <section class="group" aria-labelledby="grp-physics">
+      <h3 id="grp-physics">Physics</h3>
+
+      <div class="switch-row">
+        <input type="checkbox" id="ctl-lensing" checked>
+        <label for="ctl-lensing" title="Bend light along null geodesics of the Schwarzschild metric. Off gives straight rays, as if gravity did not touch light.">Gravitational lensing</label>
+      </div>
+
+      <div class="switch-row">
+        <input type="checkbox" id="ctl-doppler" checked>
+        <label for="ctl-doppler" title="Apply relativistic Doppler beaming and colour shift from the orbital motion of the gas; the approaching side brightens.">Doppler beaming</label>
+      </div>
+
+      <div class="switch-row">
+        <input type="checkbox" id="ctl-redshift" checked>
+        <label for="ctl-redshift" title="Dim and redden light that climbs out of the gravitational well; strongest near the inner edge of the disk.">Gravitational redshift</label>
+      </div>
+
+      <div class="switch-row">
+        <input type="checkbox" id="ctl-camRedshift" checked>
+        <label for="ctl-camRedshift" title="Treat the camera as a static observer at its actual radius, so everything is blueshifted when you hover close to the hole.">Observer blueshift</label>
+      </div>
+
+      <div class="switch-row">
+        <input type="checkbox" id="ctl-pause">
+        <label for="ctl-pause" title="Freeze coordinate time. The disk stops rotating; you can still move the camera.">Pause time</label>
+      </div>
+    </section>
+
+    <section class="group" aria-labelledby="grp-render">
+      <h3 id="grp-render">Render</h3>
+
+      <div class="row select-row">
+        <label for="ctl-quality" title="Internal render resolution relative to the display. Lower is faster; 1.5× supersamples for screenshots.">Quality</label>
+        <select id="ctl-quality">
+          <option value="0.5">0.5× (fast)</option>
+          <option value="0.75" selected>0.75×</option>
+          <option value="1">1× (native)</option>
+          <option value="1.5">1.5× (supersample)</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label for="ctl-steps" title="Maximum integration steps per ray. More steps resolve the photon ring and far-side disk better but cost GPU time.">Ray steps</label>
+        <input type="range" id="ctl-steps" min="64" max="800" step="16" value="320">
+        <output data-for="ctl-steps" for="ctl-steps">320</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-exposure" title="Exposure applied before the ACES filmic tone map.">Exposure</label>
+        <input type="range" id="ctl-exposure" min="0.1" max="4" step="0.05" value="1">
+        <output data-for="ctl-exposure" for="ctl-exposure">1.00</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-bloom" title="Strength of the HDR bloom that spills light from the bright inner disk.">Bloom</label>
+        <input type="range" id="ctl-bloom" min="0" max="2" step="0.05" value="0.4">
+        <output data-for="ctl-bloom" for="ctl-bloom">0.40</output>
+      </div>
+
+      <div class="row">
+        <label for="ctl-starBrightness" title="Multiplier on the procedural starfield and background glow.">Stars</label>
+        <input type="range" id="ctl-starBrightness" min="0" max="3" step="0.05" value="1">
+        <output data-for="ctl-starBrightness" for="ctl-starBrightness">1.00</output>
+      </div>
+    </section>
+  </aside>
+
+  <!-- Left: physics explainer -->
+  <aside id="info" aria-label="Physics explainer">
+    <h2 class="panel-title">The physics</h2>
+
+    <h3>What you're looking at</h3>
+    <p>
+      A Schwarzschild black hole of mass <i>M</i>: no spin, no charge, just curved
+      spacetime around a point. Everything here is in geometric units with
+      <i>G</i> = <i>c</i> = <i>M</i> = 1, so a distance of “6 M” means six
+      gravitational radii, and one unit of time is the time light takes to cross one
+      of them. Nothing is a texture or a pre-baked image. For every pixel, every frame,
+      the GPU fires a light ray <em>backwards</em> from the camera and integrates its
+      path as a null geodesic of the Schwarzschild metric until it either hits the
+      disk, falls through the horizon, or escapes to the stars.
+    </p>
+
+    <figure class="diagram" aria-labelledby="diagram-caption">
+      <svg viewBox="0 0 260 160" width="260" height="160" role="img" aria-describedby="diagram-caption">
+        <defs>
+          <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L8 4 L0 8 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <!-- photon sphere r = 3M -->
+        <circle cx="100" cy="80" r="42" fill="none" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" opacity="0.8"/>
+        <!-- horizon r = 2M -->
+        <circle cx="100" cy="80" r="28" fill="#000" stroke="currentColor" stroke-width="1" opacity="0.95"/>
+        <!-- disk (edge-on sliver) -->
+        <line x1="12" y1="80" x2="60" y2="80" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+        <line x1="140" y1="80" x2="188" y2="80" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+        <!-- ray 1: bent around toward the camera -->
+        <path d="M 20 24 C 70 24, 126 20, 146 48 C 160 68, 170 100, 234 114" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+        <!-- ray 2: captured -->
+        <path d="M 20 136 C 56 136, 76 128, 90 108" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 3" opacity="0.7" marker-end="url(#arrow)"/>
+        <!-- camera -->
+        <rect x="236" y="106" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <circle cx="244" cy="112" r="2.4" fill="currentColor"/>
+        <!-- labels -->
+        <text x="100" y="84" text-anchor="middle" font-size="8" fill="currentColor" opacity="0.8">r = 2M</text>
+        <text x="100" y="132" text-anchor="middle" font-size="8" fill="var(--accent)">photon sphere r = 3M</text>
+        <text x="20" y="18" font-size="8" fill="currentColor" opacity="0.8">lensed to camera</text>
+        <text x="20" y="150" font-size="8" fill="currentColor" opacity="0.7">captured</text>
+        <text x="244" y="130" text-anchor="middle" font-size="8" fill="currentColor" opacity="0.8">camera</text>
+      </svg>
+      <figcaption id="diagram-caption">
+        Rays traced backwards from the camera: one skims the photon sphere and is bent
+        toward the far side of the disk; one dives inside r = 3M and is captured.
+      </figcaption>
+    </figure>
+
+    <h3>The shadow and the photon ring</h3>
+    <p>
+      The event horizon sits at <i>r</i> = 2M. Slightly outside it, at
+      <i>r</i> = 3M, is the photon sphere: the radius at which light can orbit the hole
+      in a circle. Any ray that dips inside 3M on its way in cannot come back out, so the
+      hole casts a “shadow” that is larger than the horizon itself. Its apparent radius
+      is √27 M ≈ 5.2 M, more than two and a half times the horizon radius. The thin,
+      brilliant ring hugging the edge of the shadow is the photon ring: light from the
+      disk and the sky that looped around the hole once, twice, or more before escaping
+      toward you. Each extra loop adds a thinner, fainter ring just inside the last.
+    </p>
+
+    <h3>Why the disk wraps over the top</h3>
+    <p>
+      A flat disk seen nearly edge-on should hide its far half behind the hole. Instead
+      you see it arched above <em>and</em> below the shadow. That is gravitational
+      lensing: light from the far side of the disk is bent over the north pole of the
+      hole to reach you, and light from the underside of the far disk is bent under the
+      south pole. When the camera lines up exactly with the hole and a background source,
+      the bent paths close into a full circle, an Einstein ring; the arches you see here
+      are the partial version of the same effect, drawn by the disk instead of a distant
+      star.
+    </p>
+
+    <h3>Why one side is brighter</h3>
+    <p>
+      Gas at the inner edge of the disk, the ISCO at <i>r</i> = 6M, circles the hole at
+      about half the speed of light. At that speed relativistic Doppler beaming is not
+      subtle. The side of the disk moving toward you is brightened and shifted blue;
+      the side receding is dimmed and shifted red. Because the observed intensity scales
+      as <i>g</i><sup>4</sup>, where <i>g</i> is the ratio of received to emitted
+      frequency, a modest shift becomes a dramatic brightness asymmetry. Switch Doppler
+      beaming off and the disk becomes a symmetric, rather boring, ring.
+    </p>
+
+    <h3>Gravitational redshift</h3>
+    <p>
+      Light that climbs out of the potential well loses energy. For gas in a circular
+      orbit the combined effect of gravity and orbital time dilation gives
+      <i>g</i> = √(1 − 3M/<i>r</i>) as seen from far away, so emission from the inner
+      disk arrives dimmer and redder than its true temperature would suggest; at the
+      ISCO it has lost about 30% of its frequency. Move the camera in close and the
+      opposite happens: a static observer deep in the well sees the whole universe
+      blueshifted and brightened, by a factor 1/√(1 − 2M/<i>r</i>).
+    </p>
+
+    <h3>What's approximated</h3>
+    <p>
+      The disk is infinitesimally thin and geometrically flat, with a Novikov–Thorne
+      temperature profile and a blackbody colour. The spacetime is Schwarzschild, not
+      Kerr: there is no spin, no frame dragging, no lopsided shadow. There is no gas
+      physics or radiative transfer, no self-shadowing, no magnetic fields, and the
+      turbulence is procedural noise rather than magnetohydrodynamics. The stars and the
+      background glow are procedural too. What is <em>not</em> approximated is the light
+      bending: every ray is integrated through the exact Schwarzschild geometry.
+    </p>
+
+    <p class="keys" aria-label="Keyboard shortcuts">
+      drag orbit · wheel dolly · arrows/+/− · Space pause · H hide UI · S screenshot · R reset · 1–5 presets
+    </p>
+  </aside>
+
+  <script type="x-shader/x-fragment" id="shader-scene" data-src="src/scene.frag.glsl"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
